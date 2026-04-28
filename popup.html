@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>飲食店リスト取得</title>
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a22;
+      --surface2: #22222e;
+      --accent: #ff6b35;
+      --accent2: #ff9500;
+      --text: #f0f0f5;
+      --text-muted: #888899;
+      --border: #2a2a3a;
+      --success: #4ade80;
+      --error: #f87171;
+      --warning: #fbbf24;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 360px;
+      min-height: 200px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
+      font-size: 13px;
+    }
+
+    /* ヘッダー */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .header-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text);
+    }
+
+    .header-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    /* サイトバッジ */
+    .site-badges {
+      display: flex;
+      gap: 6px;
+      padding: 10px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .badge {
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      border: 1px solid;
+    }
+
+    .badge.hotpepper { color: #ff4444; border-color: #ff444440; background: #ff444415; }
+    .badge.tabelog   { color: #ff8c00; border-color: #ff8c0040; background: #ff8c0015; }
+    .badge.google    { color: #4285f4; border-color: #4285f440; background: #4285f415; }
+
+    /* メインコンテンツ */
+    .main {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ステータスエリア */
+    .status-area {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--text-muted);
+    }
+
+    .status-dot.active  { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .status-dot.success { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .status-dot.error   { background: var(--error);   box-shadow: 0 0 6px var(--error); }
+    .status-dot.warning { background: var(--warning);  box-shadow: 0 0 6px var(--warning); }
+    .status-dot.pulse {
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    .status-text {
+      line-height: 1.5;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .status-text .count {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      display: block;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+
+    /* ボタン */
+    .btn {
+      width: 100%;
+      padding: 11px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      letter-spacing: 0.02em;
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white;
+    }
+
+    .btn-primary:not(:disabled):hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(255,107,53,0.4);
+    }
+
+    .btn-primary:not(:disabled):active {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:not(:disabled):hover {
+      background: var(--surface);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* プレビューテーブル */
+    .preview-section {
+      display: none;
+    }
+
+    .preview-section.visible {
+      display: block;
+    }
+
+    .preview-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .preview-scroll {
+      max-height: 150px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+
+    .preview-scroll::-webkit-scrollbar { width: 4px; }
+    .preview-scroll::-webkit-scrollbar-track { background: transparent; }
+    .preview-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .preview-item {
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .preview-item:last-child { border-bottom: none; }
+
+    .preview-name {
+      font-weight: 600;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .preview-meta {
+      font-size: 10px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* エラーメッセージ */
+    .error-box {
+      background: #f8717120;
+      border: 1px solid #f8717140;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px;
+      color: var(--error);
+      display: none;
+    }
+
+    .error-box.visible { display: block; }
+
+    /* フッター */
+    .footer {
+      padding: 8px 16px 12px;
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: center;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-icon">🍽</div>
+  <div>
+    <div class="header-title">飲食店リスト取得ツール</div>
+    <div class="header-sub">検索結果からCSVを生成</div>
+  </div>
+</div>
+
+<div class="site-badges">
+  <span class="badge hotpepper">HotPepper</span>
+  <span class="badge tabelog">食べログ</span>
+  <span class="badge google">Google Maps</span>
+</div>
+
+<div class="main">
+  <div class="status-area" id="statusArea">
+    <div class="status-dot" id="statusDot"></div>
+    <div class="status-text" id="statusText">
+      対応サイトの検索結果ページを開いて「取得開始」を押してください
+    </div>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <button class="btn btn-primary" id="scrapeBtn">
+    <span>🔍</span>
+    <span>店舗情報を取得</span>
+  </button>
+
+  <div class="preview-section" id="previewSection">
+    <div class="preview-label">取得データ プレビュー</div>
+    <div class="preview-scroll" id="previewList"></div>
+  </div>
+
+  <button class="btn btn-secondary" id="downloadBtn" disabled>
+    <span>⬇</span>
+    <span>CSVダウンロード</span>
+  </button>
+</div>
+
+<div class="footer">
+  取得は一覧画面のみ対応 · 詳細ページへの遷移なし
+</div>
+
+<script src="src/popup.js"></script>
+</body>
+</html>
