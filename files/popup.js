@@ -1,0 +1,263 @@
+/**
+ * popup.js
+ * クロール制御 UI ロジック
+ */
+
+// ============================================================
+// DOM
+// ============================================================
+const maxSlider     = document.getElementById('maxSlider');
+const maxVal        = document.getElementById('maxVal');
+const dot           = document.getElementById('dot');
+const statusMain    = document.getElementById('statusMain');
+const statusSub     = document.getElementById('statusSub');
+const progressBar   = document.getElementById('progressBar');
+const logScroll     = document.getElementById('logScroll');
+const startBtn      = document.getElementById('startBtn');
+const stopBtn       = document.getElementById('stopBtn');
+const dlBtn         = document.getElementById('dlBtn');
+const previewSection= document.getElementById('previewSection');
+const previewList   = document.getElementById('previewList');
+
+// ============================================================
+// 状態
+// ============================================================
+let allResults   = [];
+let isRunning    = false;
+let maxItems     = Infinity;
+
+// ============================================================
+// スライダー
+// ============================================================
+maxSlider.addEventListener('input', () => {
+  maxItems = parseInt(maxSlider.value);
+  maxVal.textContent = maxItems + '件';
+});
+
+// ============================================================
+// ログ出力
+// ============================================================
+function addLog(msg, type = 'info') {
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  const time = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  line.textContent = `[${time}] ${msg}`;
+  logScroll.appendChild(line);
+  logScroll.scrollTop = logScroll.scrollHeight;
+  // 最大300行に制限
+  while (logScroll.children.length > 300) logScroll.removeChild(logScroll.firstChild);
+}
+
+// ============================================================
+// ステータス更新
+// ============================================================
+function setStatus(state, main, sub = '') {
+  dot.className = `dot ${state}`;
+  statusMain.textContent = main;
+  statusSub.textContent  = sub;
+}
+
+function updateProgress(collected, total) {
+  if (total === Infinity) {
+    progressBar.style.width = '100%';
+    return;
+  }
+  const pct = total > 0 ? Math.min(100, Math.round(collected / total * 100)) : 0;
+  progressBar.style.width = pct + '%';
+}
+
+// ============================================================
+// プレビュー描画
+// ============================================================
+function renderPreview(data) {
+  previewList.innerHTML = '';
+  const items = data.slice(-30).reverse(); // 最新30件を上に
+  items.forEach(r => {
+    const el = document.createElement('div');
+    el.className = 'preview-item';
+    el.innerHTML = `
+      <div class="pi-name">${esc(r.name)}</div>
+      <div class="pi-meta">
+        ${r.address ? esc(r.address) : '<span style="opacity:.5">住所なし</span>'}
+        ${r.phone ? `<span class="pi-phone"> · 📞 ${esc(r.phone)}</span>` : ''}
+      </div>
+    `;
+    previewList.appendChild(el);
+  });
+  previewSection.style.display = 'block';
+}
+
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============================================================
+// CSV 生成・ダウンロード
+// ============================================================
+function toCSV(data) {
+  const headers = ['name', 'genre', 'address', 'phone', 'url', 'source'];
+  const ef = v => {
+    const s = String(v ?? '');
+    return (s.includes(',') || s.includes('\n') || s.includes('"'))
+      ? '"' + s.replace(/"/g, '""') + '"'
+      : s;
+  };
+  const rows = data.map(r => headers.map(h => ef(r[h])).join(','));
+  return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
+}
+
+function downloadCSV() {
+  if (!allResults.length) return;
+  const csv  = toCSV(allResults);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const now  = new Date();
+  const ts   = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `restaurant_list_${ts}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  addLog(`CSV ダウンロード: ${allResults.length}件`, 'good');
+}
+
+// ============================================================
+// ボタン状態切り替え
+// ============================================================
+function setButtons(running) {
+  isRunning        = running;
+  startBtn.disabled = running;
+  stopBtn.disabled  = !running;
+  maxSlider.disabled = running;
+}
+
+// ============================================================
+// background からのメッセージ受信
+// ============================================================
+chrome.runtime.onMessage.addListener((msg) => {
+  switch (msg.type) {
+
+    case 'PAGE_START':
+      addLog(`📄 ${msg.page}ページ目 開始 (取得済み: ${msg.collected}件)`, 'info');
+      setStatus('running', `${msg.page}ページ目をクロール中...`, `取得済み ${msg.collected} 件`);
+      break;
+
+    case 'PROGRESS':
+      allResults = allResults.filter(r => true); // 参照維持
+      addLog(`✅ ${msg.latest}`, 'good');
+      setStatus('running', `取得中... ${msg.collected} 件`, `${msg.page}ページ目`);
+      updateProgress(msg.collected, msg.maxItems);
+      // 最新データを background から都度同期
+      chrome.runtime.sendMessage({ action: 'GET_RESULTS' }, res => {
+        if (res?.results) {
+          allResults = res.results;
+          renderPreview(allResults);
+          if (allResults.length > 0) dlBtn.disabled = false;
+        }
+      });
+      break;
+
+    case 'INFO':
+      addLog(`ℹ️ ${msg.message}`, 'info');
+      break;
+
+    case 'ERROR':
+      addLog(`❌ ${msg.message}`, 'err');
+      setStatus('error', 'エラーが発生しました', msg.message);
+      setButtons(false);
+      break;
+
+    case 'DONE':
+      allResults = msg.results || allResults;
+      addLog(`🎉 完了！ 合計 ${allResults.length} 件取得`, 'good');
+      setStatus('done', `取得完了 ${allResults.length} 件`, 'CSVダウンロードできます');
+      updateProgress(allResults.length, maxItems);
+      setButtons(false);
+      renderPreview(allResults);
+      if (allResults.length > 0) dlBtn.disabled = false;
+      break;
+  }
+});
+
+// ============================================================
+// 取得開始
+// ============================================================
+startBtn.addEventListener('click', async () => {
+  // アクティブタブを確認
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) {
+    addLog('アクティブタブが見つかりません', 'err');
+    return;
+  }
+
+  const url = tab.url || '';
+  const isTabelog    = /tabelog\.com/.test(url);
+  const isHotpepper  = /hotpepper\.jp/.test(url);
+
+  if (!isTabelog && !isHotpepper) {
+    addLog('食べログまたはホットペッパーの検索結果ページを開いてください', 'warn');
+    setStatus('error', '対応サイトではありません', '食べログ / ホットペッパーに対応');
+    return;
+  }
+
+  // 初期化
+  allResults = [];
+  logScroll.innerHTML = '';
+  previewList.innerHTML = '';
+  previewSection.style.display = 'none';
+  dlBtn.disabled = true;
+  updateProgress(0, maxItems);
+
+  const siteName = isTabelog ? '食べログ' : 'ホットペッパー';
+  addLog(`${siteName} クロール開始 (上限なし)`, 'good');
+  setStatus('running', `${siteName} をクロール中...`, `上限なし`);
+  setButtons(true);
+
+  // background に開始メッセージ
+  chrome.runtime.sendMessage({
+    action:   'START_CRAWL',
+    tabId:    tab.id,
+    listUrl:  tab.url,
+    maxItems: maxItems,
+  }, res => {
+    if (!res?.ok) {
+      addLog('クロール開始失敗: ' + (res?.error || '不明'), 'err');
+      setButtons(false);
+    }
+  });
+});
+
+// ============================================================
+// 停止
+// ============================================================
+stopBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'STOP_CRAWL' });
+  addLog('⏹ 停止リクエスト送信', 'warn');
+  setStatus('idle', '停止中...', '');
+  setButtons(false);
+});
+
+// ============================================================
+// CSV ダウンロード
+// ============================================================
+dlBtn.addEventListener('click', downloadCSV);
+
+// ============================================================
+// 起動時: 既存結果があれば復元
+// ============================================================
+chrome.runtime.sendMessage({ action: 'GET_RESULTS' }, res => {
+  if (res?.results?.length) {
+    allResults = res.results;
+    renderPreview(allResults);
+    dlBtn.disabled = false;
+    setStatus('done', `前回の結果 ${allResults.length} 件`, 'CSVダウンロード可能');
+    addLog(`前回の取得結果を復元: ${allResults.length} 件`, 'info');
+    updateProgress(allResults.length, maxItems);
+  }
+  if (res?.running) {
+    setButtons(true);
+    setStatus('running', 'クロール実行中...', '');
+  }
+});
